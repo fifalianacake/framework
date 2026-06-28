@@ -1,3 +1,5 @@
 framework/servlet/FrontController.class
+framework/annotation/Url.class
+framework/util/Mapping.class
 framework/annotation/Controller.class
 framework/util/AnnotationScanner.class

@@ -1,7 +1,6 @@
 package framework.util;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.HashMap;
 
 import io.github.classgraph.ClassGraph;
 import io.github.classgraph.ClassInfo;
@@ -9,9 +8,9 @@ import io.github.classgraph.ScanResult;
 
 public class AnnotationScanner {
 
-    public static List<String> findAnnotatedClasses(String basePackages, String annotationClassName) {
-        List<String> result = new ArrayList<>();
+    public static HashMap<String, Mapping> scanControllers(String basePackages) throws Exception {
 
+        HashMap<String, Mapping> map = new HashMap<>();
         String[] packages = basePackages.split(";");
 
         try (ScanResult scanResult = new ClassGraph()
@@ -20,13 +19,32 @@ public class AnnotationScanner {
                 .acceptPackages(packages)
                 .scan()) {
 
-            for (ClassInfo clazz : scanResult.getAllClasses()) {
-                if (clazz.hasAnnotation(annotationClassName)) {
-                    result.add(clazz.getName());
+            for (ClassInfo clazzInfo : scanResult.getAllClasses()) {
+
+                if (clazzInfo.hasAnnotation("framework.annotation.Controller")) {
+
+                    Class<?> clazz = Class.forName(clazzInfo.getName());
+
+                    for (java.lang.reflect.Method method : clazz.getDeclaredMethods()) {
+
+                        if (method.isAnnotationPresent(framework.annotation.Url.class)) {
+
+                            framework.annotation.Url url =
+                                    method.getAnnotation(framework.annotation.Url.class);
+
+                            String path = url.value();
+
+                            if (map.containsKey(path)) {
+                                throw new Exception("Duplicate URL: " + path);
+                            }
+
+                            map.put(path, new Mapping(clazz.getName(), method.getName()));
+                        }
+                    }
                 }
             }
         }
 
-        return result;
+        return map;
     }
 }
