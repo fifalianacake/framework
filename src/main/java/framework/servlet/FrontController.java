@@ -2,7 +2,7 @@ package framework.servlet;
 
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.util.List;
+import java.util.HashMap;
 
 import javax.servlet.ServletException;
 import javax.servlet.http.HttpServlet;
@@ -10,10 +10,11 @@ import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
 import framework.util.AnnotationScanner;
+import framework.util.Mapping;
 
 public class FrontController extends HttpServlet {
 
-    List<String> controllerList;
+    HashMap<String, Mapping> urlMapping;
 
     @Override
     public void init() throws ServletException {
@@ -21,48 +22,63 @@ public class FrontController extends HttpServlet {
         String basePackages = getInitParameter("basePackages");
 
         if (basePackages == null || basePackages.isBlank()) {
-            throw new ServletException("Missing required init-param 'basePackages' in web.xml");
+            throw new ServletException("Missing required init-param 'basePackages'");
         }
 
         try {
-            controllerList = AnnotationScanner.findAnnotatedClasses(
-                    basePackages, "framework.annotation.Controller");
+            urlMapping = AnnotationScanner.scanControllers(basePackages);
 
-            for (String name : controllerList) {
-                System.out.println("Found controller: " + name);
+            for (String url : urlMapping.keySet()) {
+                Mapping m = urlMapping.get(url);
+                System.out.println(url + " -> " + m.getClassName() + "." + m.getMethodName());
             }
 
         } catch (Exception e) {
             throw new ServletException(e);
         }
-
-        super.init();
     }
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
         processRequest(req, resp);
     }
 
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
         processRequest(req, resp);
     }
 
     private void processRequest(HttpServletRequest req, HttpServletResponse resp) {
+
         String uri = req.getRequestURI();
+        String context = req.getContextPath();
+        String path = uri.substring(context.length());
+
         resp.setContentType("text/plain");
 
         try {
             PrintWriter out = resp.getWriter();
-            out.println("URL : " + uri);
 
-            out.println("Registered controllers:");
-            for (String controllerName : controllerList) {
-                out.println(" - " + controllerName);
+            out.println("URL : " + path);
+
+            Mapping mapping = urlMapping.get(path);
+
+            if (mapping != null) {
+                out.println("Class: " + mapping.getClassName());
+                out.println("Method: " + mapping.getMethodName());
+            } else {
+                out.println("No available mapping for this URL.");
+                out.println("Available URLs:");
+
+                for (String key : urlMapping.keySet()) {
+                    out.println(" - " + key);
+                }
             }
+
         } catch (IOException e) {
-            // e.printStackTrace();
+            e.printStackTrace();
         }
     }
 }
