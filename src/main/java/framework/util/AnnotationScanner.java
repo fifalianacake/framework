@@ -8,9 +8,9 @@ import io.github.classgraph.ScanResult;
 
 public class AnnotationScanner {
 
-    public static HashMap<String, Mapping> scanControllers(String basePackages) throws Exception {
+    public static HashMap<UrlMethod, Mapping> scanControllers(String basePackages) throws Exception {
 
-        HashMap<String, Mapping> map = new HashMap<>();
+        HashMap<UrlMethod, Mapping> map = new HashMap<>();
         String[] packages = basePackages.split(";");
 
         try (ScanResult scanResult = new ClassGraph()
@@ -33,12 +33,16 @@ public class AnnotationScanner {
                                     method.getAnnotation(framework.annotation.Url.class);
 
                             String path = url.value();
+                            String httpMethod = url.method();
 
-                            if (map.containsKey(path)) {
-                                throw new Exception("Duplicate URL: " + path);
+                            UrlMethod key = new UrlMethod(path, httpMethod);
+
+                            if (map.containsKey(key)) {
+                                throw new Exception("Duplicate route: "
+                                        + key.getMethod() + " " + key.getUrl());
                             }
 
-                            map.put(path, new Mapping(clazz.getName(), method.getName()));
+                            map.put(key, new Mapping(clazz.getName(), method.getName()));
                         }
                     }
                 }

@@ -6,4 +6,5 @@ import java.lang.annotation.*;
 @Target(ElementType.METHOD)
 public @interface Url {
     String value();
+    String method() default "GET";
 }

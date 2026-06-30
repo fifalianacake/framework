@@ -11,30 +11,19 @@ import javax.servlet.http.HttpServletResponse;
 
 import framework.util.AnnotationScanner;
 import framework.util.Mapping;
+import framework.util.UrlMethod;
+import framework.util.UrlMethod;
 
 public class FrontController extends HttpServlet {
 
-    HashMap<String, Mapping> urlMapping;
+    HashMap<UrlMethod, Mapping> urlMapping;
 
     @Override
     public void init() throws ServletException {
+        urlMapping = (HashMap<UrlMethod, Mapping>) getServletContext().getAttribute("urlMapping");
 
-        String basePackages = getInitParameter("basePackages");
-
-        if (basePackages == null || basePackages.isBlank()) {
-            throw new ServletException("Missing required init-param 'basePackages'");
-        }
-
-        try {
-            urlMapping = AnnotationScanner.scanControllers(basePackages);
-
-            for (String url : urlMapping.keySet()) {
-                Mapping m = urlMapping.get(url);
-                System.out.println(url + " -> " + m.getClassName() + "." + m.getMethodName());
-            }
-
-        } catch (Exception e) {
-            throw new ServletException(e);
+        if (urlMapping == null) {
+            throw new ServletException("urlMapping not initialized.");
         }
     }
 
@@ -55,6 +44,7 @@ public class FrontController extends HttpServlet {
         String uri = req.getRequestURI();
         String context = req.getContextPath();
         String path = uri.substring(context.length());
+        String httpMethod = req.getMethod();
 
         resp.setContentType("text/plain");
 
@@ -63,7 +53,8 @@ public class FrontController extends HttpServlet {
 
             out.println("URL : " + path);
 
-            Mapping mapping = urlMapping.get(path);
+            UrlMethod key = new UrlMethod(path, httpMethod);
+            Mapping mapping = urlMapping.get(key);
 
             if (mapping != null) {
                 out.println("Class: " + mapping.getClassName());
@@ -72,8 +63,8 @@ public class FrontController extends HttpServlet {
                 out.println("No available mapping for this URL.");
                 out.println("Available URLs:");
 
-                for (String key : urlMapping.keySet()) {
-                    out.println(" - " + key);
+                for (UrlMethod k : urlMapping.keySet()) {
+                    out.println(" - " + k);
                 }
             }
 
