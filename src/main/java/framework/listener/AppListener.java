@@ -18,6 +18,8 @@ public class AppListener implements ServletContextListener {
         ServletContext context = sce.getServletContext();
 
         String basePackages = context.getInitParameter("basePackages");
+        String viewPrefix = context.getInitParameter("view.prefix");
+        String viewSuffix = context.getInitParameter("view.suffix");
 
         if (basePackages == null || basePackages.isBlank()) {
             throw new RuntimeException("Missing context-param 'basePackages'");
@@ -27,6 +29,8 @@ public class AppListener implements ServletContextListener {
             HashMap<UrlMethod, Mapping> urlMapping = AnnotationScanner.scanControllers(basePackages);
 
             context.setAttribute("urlMapping", urlMapping);
+            context.setAttribute("prefix", viewPrefix);
+            context.setAttribute("suffix", viewSuffix);
 
             for (UrlMethod key : urlMapping.keySet()) {
                 Mapping m = urlMapping.get(key);

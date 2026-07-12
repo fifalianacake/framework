@@ -42,7 +42,7 @@ public class AnnotationScanner {
                                         + key.getMethod() + " " + key.getUrl());
                             }
 
-                            map.put(key, new Mapping(clazz.getName(), method.getName()));
+                            map.put(key, new Mapping(clazz, method));
                         }
                     }
                 }
