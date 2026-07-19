@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.util.HashMap;
 import java.util.Map;
 
 import javax.servlet.RequestDispatcher;
@@ -13,22 +12,25 @@ import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 
-import framework.util.AnnotationScanner;
+import org.springframework.context.ApplicationContext;
+
 import framework.util.Mapping;
 import framework.util.ModAndView;
 import framework.util.UrlMethod;
 
 public class FrontController extends HttpServlet {
 
-    HashMap<UrlMethod, Mapping> urlMapping;
+    Map<UrlMethod, Mapping> urlMapping;
     String viewPrefix;
     String viewSuffix;
+    ApplicationContext springContext;
 
     @Override
     public void init() throws ServletException {
-        urlMapping = (HashMap<UrlMethod, Mapping>) getServletContext().getAttribute("urlMapping");
+        urlMapping = (Map<UrlMethod, Mapping>) getServletContext().getAttribute("urlMapping");
         viewPrefix = (String) getServletContext().getAttribute("prefix");
         viewSuffix = (String) getServletContext().getAttribute("suffix");
+        springContext = (ApplicationContext) getServletContext().getAttribute("springContext");
 
         if (urlMapping == null) {
             throw new ServletException("urlMapping not initialized.");
@@ -62,7 +64,19 @@ public class FrontController extends HttpServlet {
             try {
                 Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
                 Method controllerMethod = mapping.getMethod();
-                Object result = controllerMethod.invoke(controller);
+                Class<?>[] parameterTypes = controllerMethod.getParameterTypes();
+                Object[] parameters = new Object[parameterTypes.length];
+
+                for (int i = 0; i < parameterTypes.length; i++) {
+                    Class<?> paramType = parameterTypes[i];
+                    if (ApplicationContext.class.isAssignableFrom(paramType)) {
+                        parameters[i] = springContext;
+                    } else {
+                        parameters[i] = null;
+                    }
+                }
+
+                Object result = controllerMethod.invoke(controller, parameters);
 
                 if (result instanceof ModAndView mav) {
                     for (Map.Entry<String, Object> en : mav.getValues().entrySet()) {
