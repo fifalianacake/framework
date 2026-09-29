@@ -14,6 +14,9 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.springframework.context.ApplicationContext;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import framework.annotation.WebAPI;
 import framework.util.Mapping;
 import framework.util.ModAndView;
 import framework.util.UrlMethod;
@@ -24,6 +27,7 @@ public class FrontController extends HttpServlet {
     String viewPrefix;
     String viewSuffix;
     ApplicationContext springContext;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Override
     public void init() throws ServletException {
@@ -56,6 +60,7 @@ public class FrontController extends HttpServlet {
         String context = req.getContextPath();
         String path = uri.substring(context.length());
         String httpMethod = req.getMethod();
+        //Create a URL key for the currrent request
 
         UrlMethod key = new UrlMethod(path, httpMethod);
         Mapping mapping = urlMapping.get(key);
@@ -77,6 +82,18 @@ public class FrontController extends HttpServlet {
                 }
 
                 Object result = controllerMethod.invoke(controller, parameters);
+
+                if (controllerMethod.isAnnotationPresent(WebAPI.class)) {
+                    resp.setContentType("application/json;charset=UTF-8");
+                    try (PrintWriter out = resp.getWriter()) {
+                        if (result instanceof String text) {
+                            out.print(text);
+                        } else {
+                            out.print(objectMapper.writeValueAsString(result));
+                        }
+                    }
+                    return;
+                }
 
                 if (result instanceof ModAndView mav) {
                     for (Map.Entry<String, Object> en : mav.getValues().entrySet()) {
@@ -120,5 +137,6 @@ public class FrontController extends HttpServlet {
                 }
             }
         }
+        
     }
 }
