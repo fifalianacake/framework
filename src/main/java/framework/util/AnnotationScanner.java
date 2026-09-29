@@ -43,6 +43,7 @@ public class AnnotationScanner {
                             }
 
                             map.put(key, new Mapping(clazz, method));
+                            // map.put(key, new Mapping(clazz, method));
                         }
                     }
                 }

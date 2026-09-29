@@ -24,4 +24,5 @@ public class Mapping {
     public String getMethodName() { return methodName; }
     public Class<?> getControllerClass() { return controllerClass; }
     public Method getMethod() { return method; }
+
 }
