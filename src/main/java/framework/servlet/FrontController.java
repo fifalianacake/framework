@@ -15,6 +15,7 @@ import javax.servlet.http.HttpServletResponse;
 
 import org.springframework.context.ApplicationContext;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import framework.annotation.WebAPI;
@@ -22,13 +23,17 @@ import framework.util.Mapping;
 import framework.util.ModAndView;
 import framework.util.UrlMethod;
 
+import com.fasterxml.jackson.databind.DeserializationFeature;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 public class FrontController extends HttpServlet {
 
     Map<UrlMethod, Mapping> urlMapping;
     String viewPrefix;
     String viewSuffix;
     ApplicationContext springContext;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     @Override
     public void init() throws ServletException {
@@ -73,7 +78,7 @@ public class FrontController extends HttpServlet {
 
                 Object result = controllerMethod.invoke(controller, parameters);
 
-                if (controllerMethod.isAnnotationPresent(WebAPI.class)) { 
+                if (controllerMethod.isAnnotationPresent(WebAPI.class)) {
                     resp.setContentType("application/json;charset=UTF-8");
                     try (PrintWriter out = resp.getWriter()) {
                         if (result instanceof String text) {
@@ -127,7 +132,7 @@ public class FrontController extends HttpServlet {
                 }
             }
         }
-        
+
     }
 
     private Object[] buildParameters(HttpServletRequest req, HttpServletResponse resp, Method controllerMethod) {
@@ -169,8 +174,23 @@ public class FrontController extends HttpServlet {
     }
 
     private Object resolveValue(HttpServletRequest req, String paramName, Class<?> paramType) {
+        if (isComplexType(paramType)) {
+            String contentType = req.getContentType();
+            if (contentType != null && contentType.toLowerCase().startsWith("application/json")) {
+                try {
+                    String jsonBody = readRequestBody(req);
+                    return (jsonBody == null || jsonBody.isBlank())
+                            ? null
+                            : objectMapper.readValue(jsonBody, paramType);
+                } catch (Exception e) {
+                    throw new IllegalArgumentException("Invalid JSON body for " + paramType.getSimpleName(), e);
+                }
+            }
+            return bindFormToObject(req, paramType);
+        }
+
         Map<String, String[]> parameterMap = req.getParameterMap();
-        if (parameterMap == null || parameterMap.isEmpty()) {
+        if (paramName == null || parameterMap == null || parameterMap.isEmpty()) {
             return defaultValueFor(paramType);
         }
 
@@ -178,12 +198,43 @@ public class FrontController extends HttpServlet {
         if (rawValues == null || rawValues.length == 0) {
             return defaultValueFor(paramType);
         }
-
         if (paramType.isArray()) {
             return convertArray(rawValues, paramType.getComponentType());
         }
-
         return convertScalar(rawValues[0], paramType);
+    }
+
+    private Object bindFormToObject(HttpServletRequest req, Class<?> type) {
+        Map<String, String[]> parameterMap = req.getParameterMap();
+        if (parameterMap == null || parameterMap.isEmpty()) {
+            return null;
+        }
+        Map<String, Object> values = new java.util.HashMap<>();
+        parameterMap.forEach((k, v) -> values.put(k, v.length == 1 ? v[0] : v));
+        return objectMapper.convertValue(values, type);
+    }
+
+
+    private boolean isComplexType(Class<?> type) {
+        return !type.isPrimitive()
+                && type != String.class
+                && type != String[].class
+                && !type.isArray()
+                && !type.isEnum()
+                && !Number.class.isAssignableFrom(type)
+                && !Boolean.class.isAssignableFrom(type)
+                && !Character.class.isAssignableFrom(type);
+    }
+
+    private String readRequestBody(HttpServletRequest req) throws Exception {
+        StringBuilder body = new StringBuilder();
+        String line;
+        try (java.io.BufferedReader reader = req.getReader()) {
+            while ((line = reader.readLine()) != null) {
+                body.append(line);
+            }
+        }
+        return body.toString();
     }
 
     private Object convertArray(String[] rawValues, Class<?> componentType) {
@@ -232,14 +283,22 @@ public class FrontController extends HttpServlet {
     }
 
     private Object defaultValueFor(Class<?> paramType) {
-        if (paramType == boolean.class) return false;
-        if (paramType == byte.class) return (byte) 0;
-        if (paramType == short.class) return (short) 0;
-        if (paramType == int.class) return 0;
-        if (paramType == long.class) return 0L;
-        if (paramType == float.class) return 0F;
-        if (paramType == double.class) return 0D;
-        if (paramType == char.class) return '\0';
+        if (paramType == boolean.class)
+            return false;
+        if (paramType == byte.class)
+            return (byte) 0;
+        if (paramType == short.class)
+            return (short) 0;
+        if (paramType == int.class)
+            return 0;
+        if (paramType == long.class)
+            return 0L;
+        if (paramType == float.class)
+            return 0F;
+        if (paramType == double.class)
+            return 0D;
+        if (paramType == char.class)
+            return '\0';
         return null;
     }
 }
