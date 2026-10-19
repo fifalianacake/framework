@@ -4,11 +4,10 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
-import java.lang.reflect.Parameter;
 import java.util.Map;
 
-import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
+import javax.servlet.annotation.MultipartConfig;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
@@ -18,24 +17,30 @@ import org.springframework.context.ApplicationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import framework.annotation.WebAPI;
+import framework.config.FrameworkConfig;
+import framework.servlet.binding.ArgumentResolver;
+import framework.servlet.response.ResultHandler;
+import framework.upload.FileStorage;
 import framework.util.Mapping;
-import framework.util.ModAndView;
 import framework.util.UrlMethod;
 
-import com.fasterxml.jackson.databind.DeserializationFeature;
-import com.fasterxml.jackson.databind.ObjectMapper;
 
+@MultipartConfig
 public class FrontController extends HttpServlet {
 
     Map<UrlMethod, Mapping> urlMapping;
     String viewPrefix;
     String viewSuffix;
     ApplicationContext springContext;
+
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
+    private ArgumentResolver argumentResolver;
+    private ResultHandler resultHandler;
+
     @Override
+    @SuppressWarnings("unchecked")
     public void init() throws ServletException {
         urlMapping = (Map<UrlMethod, Mapping>) getServletContext().getAttribute("urlMapping");
         viewPrefix = (String) getServletContext().getAttribute("prefix");
@@ -45,260 +50,72 @@ public class FrontController extends HttpServlet {
         if (urlMapping == null) {
             throw new ServletException("urlMapping not initialized.");
         }
+
+        FileStorage fileStorage = FileStorage.from(FrameworkConfig.load());
+        getServletContext().setAttribute("fileStorage", fileStorage);
+        log("Uploads are saved to " + fileStorage.getRoot());
+
+        argumentResolver = new ArgumentResolver(springContext, fileStorage, objectMapper);
+        resultHandler = new ResultHandler(objectMapper, viewPrefix, viewSuffix);
     }
 
     @Override
-    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
-            throws ServletException, IOException {
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         processRequest(req, resp);
     }
 
     @Override
-    protected void doPost(HttpServletRequest req, HttpServletResponse resp)
-            throws ServletException, IOException {
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
         processRequest(req, resp);
     }
 
     private void processRequest(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
 
-        String uri = req.getRequestURI();
-        String context = req.getContextPath();
-        String path = uri.substring(context.length());
-        String httpMethod = req.getMethod();
-
-        UrlMethod key = new UrlMethod(path, httpMethod);
+        String path = req.getRequestURI().substring(req.getContextPath().length());
+        UrlMethod key = new UrlMethod(path, req.getMethod());
         Mapping mapping = urlMapping.get(key);
 
-        if (mapping != null) {
-            try {
-                Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
-                Method controllerMethod = mapping.getMethod();
-                Object[] parameters = buildParameters(req, resp, controllerMethod);
-
-                Object result = controllerMethod.invoke(controller, parameters);
-
-                if (controllerMethod.isAnnotationPresent(WebAPI.class)) {
-                    resp.setContentType("application/json;charset=UTF-8");
-                    try (PrintWriter out = resp.getWriter()) {
-                        if (result instanceof String text) {
-                            out.print(text);
-                        } else {
-                            out.print(objectMapper.writeValueAsString(result));
-                        }
-                    }
-                    return;
-                }
-
-                if (result instanceof ModAndView mav) {
-                    for (Map.Entry<String, Object> en : mav.getValues().entrySet()) {
-                        req.setAttribute(en.getKey(), en.getValue());
-                    }
-
-                    if (mav.getView() != null && !mav.getView().isBlank()) {
-                        String viewPath = viewPrefix + mav.getView() + viewSuffix;
-                        RequestDispatcher dispatcher = req.getRequestDispatcher(viewPath);
-                        dispatcher.forward(req, resp);
-                        return;
-                    }
-
-                    throw new ServletException("No view defined for " + key);
-                }
-
-                if (result instanceof String text) {
-                    resp.setContentType("text/plain;charset=UTF-8");
-                    try (PrintWriter out = resp.getWriter()) {
-                        out.println("Method result:");
-                        out.println(text);
-                    }
-                    return;
-                }
-
-                throw new ServletException("Unsupported return type for " + key + " : "
-                        + (result != null ? result.getClass().getName() : "null"));
-
-            } catch (InstantiationException | IllegalAccessException | InvocationTargetException
-                    | NoSuchMethodException e) {
-                throw new RuntimeException("Unable to execute method for " + key, e);
-            }
-        } else {
-            resp.setContentType("text/plain;charset=UTF-8");
-            try (PrintWriter out = resp.getWriter()) {
-                out.println("No mapping found for URL: " + path);
-                out.println("Available URLs:");
-
-                for (UrlMethod k : urlMapping.keySet()) {
-                    out.println(" - " + k);
-                }
-            }
+        if (mapping == null) {
+            writeNotFound(path, resp);
+            return;
         }
 
+        try {
+            Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
+            Method method = mapping.getMethod();
+            Object[] arguments = argumentResolver.resolve(req, resp, method);
+            Object result = method.invoke(controller, arguments);
+            resultHandler.handle(result, method, req, resp, key);
+
+        } catch (InvocationTargetException e) {
+            handleControllerFailure(e.getCause(), key, resp);
+        } catch (IllegalArgumentException e) {
+            // bad input while binding (invalid JSON, "abc" for an int, ...)
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
+        } catch (ReflectiveOperationException e) {
+            throw new ServletException("Unable to execute method for " + key, e);
+        }
     }
 
-    private Object[] buildParameters(HttpServletRequest req, HttpServletResponse resp, Method controllerMethod) {
-        Class<?>[] parameterTypes = controllerMethod.getParameterTypes();
-        Parameter[] parameters = controllerMethod.getParameters();
-        Object[] values = new Object[parameterTypes.length];
-
-        for (int i = 0; i < parameterTypes.length; i++) {
-            Class<?> paramType = parameterTypes[i];
-
-            if (ApplicationContext.class.isAssignableFrom(paramType)) {
-                values[i] = springContext;
-                continue;
-            }
-
-            if (HttpServletRequest.class.isAssignableFrom(paramType)) {
-                values[i] = req;
-                continue;
-            }
-
-            if (HttpServletResponse.class.isAssignableFrom(paramType)) {
-                values[i] = resp;
-                continue;
-            }
-
-            String paramName = null;
-            if (i < parameters.length && parameters[i].isNamePresent()) {
-                paramName = parameters[i].getName();
-            }
-
-            if (paramName != null && !paramName.isBlank()) {
-                values[i] = resolveValue(req, paramName, paramType);
-            } else {
-                values[i] = defaultValueFor(paramType);
-            }
+    private void handleControllerFailure(Throwable cause, UrlMethod key, HttpServletResponse resp)
+            throws ServletException, IOException {
+        if (cause instanceof IllegalArgumentException) {
+            // e.g. FileStorage rejected the upload: wrong extension, too large
+            resp.sendError(HttpServletResponse.SC_BAD_REQUEST, cause.getMessage());
+            return;
         }
-
-        return values;
+        throw new ServletException("Controller method failed for " + key, cause);
     }
 
-    private Object resolveValue(HttpServletRequest req, String paramName, Class<?> paramType) {
-        if (isComplexType(paramType)) {
-            String contentType = req.getContentType();
-            if (contentType != null && contentType.toLowerCase().startsWith("application/json")) {
-                try {
-                    String jsonBody = readRequestBody(req);
-                    return (jsonBody == null || jsonBody.isBlank())
-                            ? null
-                            : objectMapper.readValue(jsonBody, paramType);
-                } catch (Exception e) {
-                    throw new IllegalArgumentException("Invalid JSON body for " + paramType.getSimpleName(), e);
-                }
-            }
-            return bindFormToObject(req, paramType);
-        }
-
-        Map<String, String[]> parameterMap = req.getParameterMap();
-        if (paramName == null || parameterMap == null || parameterMap.isEmpty()) {
-            return defaultValueFor(paramType);
-        }
-
-        String[] rawValues = parameterMap.get(paramName);
-        if (rawValues == null || rawValues.length == 0) {
-            return defaultValueFor(paramType);
-        }
-        if (paramType.isArray()) {
-            return convertArray(rawValues, paramType.getComponentType());
-        }
-        return convertScalar(rawValues[0], paramType);
-    }
-
-    private Object bindFormToObject(HttpServletRequest req, Class<?> type) {
-        Map<String, String[]> parameterMap = req.getParameterMap();
-        if (parameterMap == null || parameterMap.isEmpty()) {
-            return null;
-        }
-        Map<String, Object> values = new java.util.HashMap<>();
-        parameterMap.forEach((k, v) -> values.put(k, v.length == 1 ? v[0] : v));
-        return objectMapper.convertValue(values, type);
-    }
-
-
-    private boolean isComplexType(Class<?> type) {
-        return !type.isPrimitive()
-                && type != String.class
-                && type != String[].class
-                && !type.isArray()
-                && !type.isEnum()
-                && !Number.class.isAssignableFrom(type)
-                && !Boolean.class.isAssignableFrom(type)
-                && !Character.class.isAssignableFrom(type);
-    }
-
-    private String readRequestBody(HttpServletRequest req) throws Exception {
-        StringBuilder body = new StringBuilder();
-        String line;
-        try (java.io.BufferedReader reader = req.getReader()) {
-            while ((line = reader.readLine()) != null) {
-                body.append(line);
+    private void writeNotFound(String path, HttpServletResponse resp) throws IOException {
+        resp.setContentType("text/plain;charset=UTF-8");
+        try (PrintWriter out = resp.getWriter()) {
+            out.println("No mapping found for URL: " + path);
+            out.println("Available URLs:");
+            for (UrlMethod k : urlMapping.keySet()) {
+                out.println(" - " + k);
             }
         }
-        return body.toString();
-    }
-
-    private Object convertArray(String[] rawValues, Class<?> componentType) {
-        Object array = java.lang.reflect.Array.newInstance(componentType, rawValues.length);
-        for (int i = 0; i < rawValues.length; i++) {
-            java.lang.reflect.Array.set(array, i, convertScalar(rawValues[i], componentType));
-        }
-        return array;
-    }
-
-    private Object convertScalar(String rawValue, Class<?> targetType) {
-        if (targetType == String.class) {
-            return rawValue;
-        }
-        if (targetType == String[].class) {
-            return new String[] { rawValue };
-        }
-        if (targetType == Integer.class || targetType == int.class) {
-            return Integer.parseInt(rawValue);
-        }
-        if (targetType == Long.class || targetType == long.class) {
-            return Long.parseLong(rawValue);
-        }
-        if (targetType == Double.class || targetType == double.class) {
-            return Double.parseDouble(rawValue);
-        }
-        if (targetType == Float.class || targetType == float.class) {
-            return Float.parseFloat(rawValue);
-        }
-        if (targetType == Boolean.class || targetType == boolean.class) {
-            return Boolean.parseBoolean(rawValue);
-        }
-        if (targetType == Short.class || targetType == short.class) {
-            return Short.parseShort(rawValue);
-        }
-        if (targetType == Byte.class || targetType == byte.class) {
-            return Byte.parseByte(rawValue);
-        }
-        if (targetType == Character.class || targetType == char.class) {
-            return rawValue.isEmpty() ? '\0' : rawValue.charAt(0);
-        }
-        if (targetType.isEnum()) {
-            return Enum.valueOf((Class<? extends Enum>) targetType, rawValue);
-        }
-        return rawValue;
-    }
-
-    private Object defaultValueFor(Class<?> paramType) {
-        if (paramType == boolean.class)
-            return false;
-        if (paramType == byte.class)
-            return (byte) 0;
-        if (paramType == short.class)
-            return (short) 0;
-        if (paramType == int.class)
-            return 0;
-        if (paramType == long.class)
-            return 0L;
-        if (paramType == float.class)
-            return 0F;
-        if (paramType == double.class)
-            return 0D;
-        if (paramType == char.class)
-            return '\0';
-        return null;
     }
 }
