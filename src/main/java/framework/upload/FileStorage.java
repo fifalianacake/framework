@@ -9,11 +9,7 @@ import java.util.UUID;
 
 import framework.config.FrameworkConfig;
 
-/**
- * Saves uploaded files in the folder configured by upload.dir in
- * application.properties, and reads them back.
- * Controllers receive it by declaring a FileStorage parameter.
- */
+
 public class FileStorage {
 
     private final Path root;
@@ -33,7 +29,6 @@ public class FileStorage {
         return new FileStorage(Paths.get(dir), maxSize, allowed);
     }
 
-    /** Validates and writes the file under a unique name; returns that name. */
     public String save(UploadedFile file) throws IOException {
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("No file was uploaded.");
@@ -54,7 +49,6 @@ public class FileStorage {
         return storedName;
     }
 
-    /** Reads a previously saved file back, e.g. to send it to the browser. */
     public UploadedFile load(String storedName) throws IOException {
         Path path = resolveInsideRoot(storedName);
         if (!Files.isRegularFile(path)) {
@@ -69,7 +63,6 @@ public class FileStorage {
         return root;
     }
 
-    /** Blocks names like "../../etc/passwd" from escaping the upload folder. */
     private Path resolveInsideRoot(String fileName) {
         if (fileName == null || fileName.isBlank()) {
             throw new IllegalArgumentException("File name is required.");

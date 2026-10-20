@@ -16,7 +16,6 @@ import framework.annotation.WebAPI;
 import framework.upload.UploadedFile;
 import framework.util.ModAndView;
 
-/** Turns whatever a controller method returned into the HTTP response. */
 public class ResultHandler {
 
     private final ObjectMapper objectMapper;

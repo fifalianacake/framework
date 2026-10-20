@@ -22,7 +22,9 @@ import framework.servlet.binding.ArgumentResolver;
 import framework.servlet.response.ResultHandler;
 import framework.upload.FileStorage;
 import framework.util.Mapping;
+import framework.util.Session;
 import framework.util.UrlMethod;
+import framework.util.UtilSession;
 
 
 @MultipartConfig
@@ -84,14 +86,15 @@ public class FrontController extends HttpServlet {
         try {
             Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
             Method method = mapping.getMethod();
-            Object[] arguments = argumentResolver.resolve(req, resp, method);
+            Session session = UtilSession.chargerSession(req);          
+            Object[] arguments = argumentResolver.resolve(req, resp, method, session);
             Object result = method.invoke(controller, arguments);
-            resultHandler.handle(result, method, req, resp, key);
+            UtilSession.ecraseSession(req, session);                     
+            resultHandler.handle(result, method, req, resp, key);        
 
         } catch (InvocationTargetException e) {
             handleControllerFailure(e.getCause(), key, resp);
         } catch (IllegalArgumentException e) {
-            // bad input while binding (invalid JSON, "abc" for an int, ...)
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, e.getMessage());
         } catch (ReflectiveOperationException e) {
             throw new ServletException("Unable to execute method for " + key, e);
@@ -101,7 +104,6 @@ public class FrontController extends HttpServlet {
     private void handleControllerFailure(Throwable cause, UrlMethod key, HttpServletResponse resp)
             throws ServletException, IOException {
         if (cause instanceof IllegalArgumentException) {
-            // e.g. FileStorage rejected the upload: wrong extension, too large
             resp.sendError(HttpServletResponse.SC_BAD_REQUEST, cause.getMessage());
             return;
         }

@@ -40,7 +40,6 @@ final class MultipartFiles {
         try {
             for (Part part : req.getParts()) {
                 if (part.getSubmittedFileName() == null) {
-                    continue; 
                 }
                 UploadedFile file = UploadedFile.fromPart(part);
                 if (file != null) {

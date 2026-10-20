@@ -13,6 +13,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import framework.upload.FileStorage;
 import framework.upload.UploadedFile;
+import framework.util.Session;
+
 
 public class ArgumentResolver {
 
@@ -26,16 +28,16 @@ public class ArgumentResolver {
         this.objectBinder = new ObjectBinder(objectMapper);
     }
 
-    public Object[] resolve(HttpServletRequest req, HttpServletResponse resp, Method method) {
+    public Object[] resolve(HttpServletRequest req, HttpServletResponse resp, Method method, Session session) {
         Parameter[] parameters = method.getParameters();
         Object[] values = new Object[parameters.length];
         for (int i = 0; i < parameters.length; i++) {
-            values[i] = resolveOne(req, resp, parameters[i]);
+            values[i] = resolveOne(req, resp, parameters[i], session);
         }
         return values;
     }
 
-    private Object resolveOne(HttpServletRequest req, HttpServletResponse resp, Parameter parameter) {
+    private Object resolveOne(HttpServletRequest req, HttpServletResponse resp, Parameter parameter, Session session) {
         Class<?> type = parameter.getType();
 
         // 1. Framework objects injected by type
@@ -43,10 +45,10 @@ public class ArgumentResolver {
         if (HttpServletRequest.class.isAssignableFrom(type)) return req;
         if (HttpServletResponse.class.isAssignableFrom(type)) return resp;
         if (FileStorage.class.isAssignableFrom(type)) return fileStorage;
+        if (Session.class.isAssignableFrom(type)) return session;
 
         String name = parameter.isNamePresent() ? parameter.getName() : null;
 
-        // 2. Uploaded files by field name: saveAvatar(UploadedFile photo)
         if (type == UploadedFile.class) {
             return name == null ? null : MultipartFiles.first(req, name);
         }
@@ -54,12 +56,10 @@ public class ArgumentResolver {
             return name == null ? null : MultipartFiles.all(req, name);
         }
 
-        // 3. Model objects: saveClient(Client client)
         if (!ValueConverter.isSimpleType(type)) {
             return objectBinder.bind(req, type);
         }
 
-        // 4. Simple values by request parameter name: submit(String name, int age)
         return resolveSimple(req, name, type);
     }
 
