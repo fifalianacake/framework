@@ -67,7 +67,6 @@ final class ObjectBinder {
         return target;
     }
 
-    /** Sets Client.photo from <input type="file" name="photo">, and so on. */
     private void bindFiles(HttpServletRequest req, Object target) {
         BeanInfo info;
         try {
@@ -103,7 +102,6 @@ final class ObjectBinder {
         return type != null && type.toLowerCase(Locale.ROOT).startsWith("application/json");
     }
 
-    /** The body stream can only be read once, so keep it for other parameters. */
     private static String readBodyOnce(HttpServletRequest req) {
         Object cached = req.getAttribute(BODY_CACHE_ATTRIBUTE);
         if (cached instanceof String s) {

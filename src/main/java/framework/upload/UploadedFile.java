@@ -8,12 +8,7 @@ import javax.servlet.http.Part;
 
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
-/**
- * A file sent in a multipart/form-data request: its name, extension and bytes.
- * Declare a field of this type in a model (e.g. Client.photo) or as a
- * controller parameter, and the framework fills it from the matching
- * <input type="file" name="..."> field.
- */
+
 public class UploadedFile {
 
     private final String originalFilename; // "holiday.JPG"
@@ -21,10 +16,8 @@ public class UploadedFile {
     private final String extension;        // "jpg" (lower case, no dot)
     private final String contentType;      // "image/jpeg"
     private final byte[] content;
-    private String storedName;             // set by FileStorage.save(): "3f2a...e1.jpg"
-
+    private String storedName;             
     public UploadedFile(String originalFilename, String contentType, byte[] content) {
-        // Some browsers send the full client path ("C:\Users\me\photo.jpg"); keep only the file name.
         String clean = originalFilename == null ? "" : originalFilename.trim();
         clean = clean.substring(Math.max(clean.lastIndexOf('/'), clean.lastIndexOf('\\')) + 1);
         int dot = clean.lastIndexOf('.');
@@ -37,7 +30,6 @@ public class UploadedFile {
         this.content = content == null ? new byte[0] : content;
     }
 
-    /** Returns null when the browser sent an empty file input. */
     public static UploadedFile fromPart(Part part) throws IOException {
         String submitted = part.getSubmittedFileName();
         if (submitted == null || submitted.isBlank() || part.getSize() == 0) {
@@ -55,7 +47,6 @@ public class UploadedFile {
     public long getSize() { return content.length; }
     public boolean isEmpty() { return content.length == 0; }
 
-    /** Raw bytes; excluded from JSON so @WebAPI responses don't dump the whole image. */
     @JsonIgnore
     public byte[] getContent() { return content; }
 
