@@ -57,8 +57,9 @@ public class ResultHandler {
         for (Map.Entry<String, Object> entry : mav.getValues().entrySet()) {
             req.setAttribute(entry.getKey(), entry.getValue());
         }
-        if (mav.getView() == null || mav.getView().isBlank()) {
-            throw new ServletException("No view defined for " + routeKey);
+        if (mav.getView().startsWith("redirect:")) {
+            resp.sendRedirect(req.getContextPath() + mav.getView().substring("redirect:".length()));
+            return;
         }
         req.getRequestDispatcher(viewPrefix + mav.getView() + viewSuffix).forward(req, resp);
     }
