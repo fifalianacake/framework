@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationContext;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import framework.annotation.WebAPI;
 import framework.config.FrameworkConfig;
 import framework.servlet.binding.ArgumentResolver;
 import framework.servlet.response.ResultHandler;
@@ -24,8 +25,8 @@ import framework.upload.FileStorage;
 import framework.util.Mapping;
 import framework.util.Session;
 import framework.util.UrlMethod;
+import framework.util.UtilAuth;
 import framework.util.UtilSession;
-
 
 @MultipartConfig
 public class FrontController extends HttpServlet {
@@ -86,11 +87,20 @@ public class FrontController extends HttpServlet {
         try {
             Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
             Method method = mapping.getMethod();
-            Session session = UtilSession.chargerSession(req);          
+            Session session = UtilSession.chargerSession(req);
+            if (!UtilAuth.isAllowed(method, session)) {
+                if (method.isAnnotationPresent(WebAPI.class)) {
+                    resp.sendError(HttpServletResponse.SC_UNAUTHORIZED); // APIs get 401, not a page
+                } else {
+                    resp.sendRedirect(req.getContextPath() + "/login");
+                }
+                return;
+            }
             Object[] arguments = argumentResolver.resolve(req, resp, method, session);
             Object result = method.invoke(controller, arguments);
-            UtilSession.ecraseSession(req, session);                     
-            resultHandler.handle(result, method, req, resp, key);        
+            UtilSession.ecraseSession(req, session);
+            req.setAttribute("mySession", session);
+            resultHandler.handle(result, method, req, resp, key);
 
         } catch (InvocationTargetException e) {
             handleControllerFailure(e.getCause(), key, resp);
