@@ -35,12 +35,14 @@ public class FrontController extends HttpServlet {
     String viewPrefix;
     String viewSuffix;
     ApplicationContext springContext;
+    
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
 
     private ArgumentResolver argumentResolver;
     private ResultHandler resultHandler;
+    private UtilAuth utilAuth;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -49,6 +51,11 @@ public class FrontController extends HttpServlet {
         viewPrefix = (String) getServletContext().getAttribute("prefix");
         viewSuffix = (String) getServletContext().getAttribute("suffix");
         springContext = (ApplicationContext) getServletContext().getAttribute("springContext");
+        FrameworkConfig config = FrameworkConfig.load();
+        String userKey = setting(config, "auth.session-user");
+        String roleKey = setting(config, "auth.session-role");
+        String loginUrl = config.get("auth.login-url", "/login");
+        utilAuth = new UtilAuth(userKey, roleKey, loginUrl);
 
         if (urlMapping == null) {
             throw new ServletException("urlMapping not initialized.");
@@ -88,11 +95,11 @@ public class FrontController extends HttpServlet {
             Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
             Method method = mapping.getMethod();
             Session session = UtilSession.chargerSession(req);
-            if (!UtilAuth.isAllowed(method, session)) {
+            if (!utilAuth.isAllowed(method, session)) {
                 if (method.isAnnotationPresent(WebAPI.class)) {
-                    resp.sendError(HttpServletResponse.SC_UNAUTHORIZED); // APIs get 401, not a page
+                    resp.sendError(HttpServletResponse.SC_UNAUTHORIZED);
                 } else {
-                    resp.sendRedirect(req.getContextPath() + "/login");
+                    resp.sendRedirect(req.getContextPath() + utilAuth.getLoginUrl());
                 }
                 return;
             }
@@ -129,5 +136,14 @@ public class FrontController extends HttpServlet {
                 out.println(" - " + k);
             }
         }
+    }
+
+    // application.properties first, then web.xml <context-param>, otherwise stop
+    private String setting(FrameworkConfig config, String name) throws ServletException {
+        String value = config.get(name, getServletContext().getInitParameter(name));
+        if (value == null || value.isBlank()) {
+            throw new ServletException(name + " is not defined in application.properties or web.xml");
+        }
+        return value;
     }
 }
