@@ -27,6 +27,7 @@ import framework.util.Session;
 import framework.util.UrlMethod;
 import framework.util.UtilAuth;
 import framework.util.UtilSession;
+import framework.util.ControllerRegistry;
 
 @MultipartConfig
 public class FrontController extends HttpServlet {
@@ -35,7 +36,6 @@ public class FrontController extends HttpServlet {
     String viewPrefix;
     String viewSuffix;
     ApplicationContext springContext;
-    
 
     private final ObjectMapper objectMapper = new ObjectMapper()
             .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
@@ -43,6 +43,7 @@ public class FrontController extends HttpServlet {
     private ArgumentResolver argumentResolver;
     private ResultHandler resultHandler;
     private UtilAuth utilAuth;
+    private ControllerRegistry controllers;
 
     @Override
     @SuppressWarnings("unchecked")
@@ -60,6 +61,12 @@ public class FrontController extends HttpServlet {
         if (urlMapping == null) {
             throw new ServletException("urlMapping not initialized.");
         }
+        try {
+            controllers = new ControllerRegistry(urlMapping.values()); 
+        } catch (IllegalStateException e) {
+            throw new ServletException(e.getMessage(), e);
+        }
+        log(controllers.size() + " controller(s) created");
 
         FileStorage fileStorage = FileStorage.from(FrameworkConfig.load());
         getServletContext().setAttribute("fileStorage", fileStorage);
@@ -92,7 +99,7 @@ public class FrontController extends HttpServlet {
         }
 
         try {
-            Object controller = mapping.getControllerClass().getDeclaredConstructor().newInstance();
+            Object controller = controllers.get(mapping.getControllerClass());
             Method method = mapping.getMethod();
             Session session = UtilSession.chargerSession(req);
             if (!utilAuth.isAllowed(method, session)) {
